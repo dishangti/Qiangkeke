@@ -1,6 +1,7 @@
 import requests
-import threading
+from threading import Thread, Lock
 import re
+from time import sleep
 
 class Stu():
 
@@ -13,43 +14,80 @@ class Stu():
             'Referer': grab_referer,
             'Cookie': cookie
         }
-        self.grabbed = {}
+        self.is_grabbed = {}
+        self.grab_count = {}
         for classid in classid_list:
-            self.grabbed[classid] = False
-    
-    def grab_class(self, classid):
-        self.data = {
+            self.is_grabbed[classid] = False
+            self.grab_count[classid] = 0
+
+        self.syn_lock = Lock()      # 线程互斥锁
+
+        self.log_file = open('qiangkeke.log', 'w', encoding="utf8")
+
+    def grab_class(self, classid, class_thd_num):
+        data = {
             'optype': 'true',
             'operator0': classid+':true:0',
             'lesson0': classid,
             'expLessonGroup_'+classid: 'undefined'
         }
-        n=0
-        while True:
-            if self.grabbed[classid]: break
-            n=n+1
-            try:
-                mes = requests.post(self.grab_url, headers=self.headers, data=self.data, verify=False)
-            except:
-                print(classid+'选课失败，正在进行第'+str(n)+'次尝试') 
-                continue
-            res=str(mes.content,'utf8')
-            if '成功' in res:
-                print(classid+"选课成功")
-                self.grabbed[classid] = True
-                break
-            else:
-                print(classid+'选课失败，正在进行第'+str(n)+'次尝试')            
 
-    def grab_all(self):
-        for classid in self.classid_list:
-            thd = threading.Thread(target=self.grab_class, args=(classid,))
+        grab_url = self.grab_url
+        headers = self.headers
+
+        syn_lock = self.syn_lock
+        grab_count = self.grab_count
+        is_grabbed = self.is_grabbed
+        log_file = self.log_file
+
+        while True:
+            if is_grabbed[classid]: break
+            mes = requests.post(grab_url, headers=headers, data=data, verify=False)
+            try:
+                pass
+            except Exception:
+                with syn_lock:
+                    grab_count[classid] += 1
+                    info = '课程'+classid+'线程'+str(class_thd_num)+'：第'+str(grab_count[classid])+'次尝试提交失败...'
+                    log_file.write(info + '\n')
+                print(info)
+                continue
+            else:
+                res=str(mes.content,'utf8')
+                if '成功' in res:
+                    with syn_lock:
+                        grab_count[classid] += 1
+                        info = '课程'+classid+'线程'+str(class_thd_num)+'：第'+str(grab_count[classid])+'次选课成功，将停止其他抢课线程！'
+                        log_file.write(info + '\n')
+                    print(info)
+                    is_grabbed[classid] = True
+                    break
+                else:
+                    with syn_lock:
+                        grab_count[classid] += 1
+                        info = '课程'+classid+'线程'+str(class_thd_num)+'：第'+str(grab_count[classid])+'次尝试选课失败...'
+                        log_file.write(info + '\n')
+                    print(info)            
+
+    def set_grab_thd(self, classid, thd_num):
+        for class_thd_num in range(0, thd_num):
+            thd = Thread(target=self.grab_class, args=(classid, class_thd_num))
             thd.start()
     
-    def thd_graball(self, thd_num):
-        for i in range(0, thd_num):
-            thd = threading.Thread(target=self.grab_all)
+    def flush_log_buffer(self):
+        log_file = self.log_file
+        syn_lock = self.syn_lock
+        while True:
+            sleep(1)
+            with syn_lock:
+                log_file.flush()
+
+    def set_thd(self, thd_num):
+        for classid in self.classid_list:
+            thd = Thread(target=self.set_grab_thd, args=(classid, thd_num))
             thd.start()
+        thd= Thread(target=self.flush_log_buffer)
+        thd.start()
     
     def query_info(self, classid):
         params = {
@@ -71,4 +109,10 @@ class Stu():
     
     def all_info(self):
         for classid in self.classid_list:
-            print(classid, *self.query_info(classid))
+            info = str(classid) + ' ' + ' '.join(self.query_info(classid))
+            with self.syn_lock:
+                self.log_file.write(info + '\n')
+            print(info)
+
+    def __del__(self):
+        self.log_file.close()
