@@ -10,7 +10,7 @@ class Stu():
         self.query_url = query_url
         self.classid_list = classid_list
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
             'Referer': grab_referer,
             'Cookie': cookie
         }
@@ -42,9 +42,8 @@ class Stu():
 
         while True:
             if is_grabbed[classid]: break
-            mes = requests.post(grab_url, headers=headers, data=data, verify=False)
             try:
-                pass
+                mes = requests.post(grab_url, headers=headers, data=data, verify=False)
             except Exception:
                 with syn_lock:
                     grab_count[classid] += 1
